@@ -1,0 +1,15 @@
+pub const DeviceDescriptor = packed struct {
+    length: u8,
+    descriptor_type: u8,
+    usb: u16,
+    device_class: u8,
+    device_sub_class: u8,
+    device_protocol: u8,
+    max_packet_size_0: u8,
+    id_vendor: u16,
+    id_product: u16,
+    device: u16,
+    manufacturer: u8,
+    product: u8,
+    serial_number: u8,
+};

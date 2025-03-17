@@ -27,10 +27,21 @@ pub const Device = struct {
     }
 
     pub fn open(self: Self) !void {
-        const devices = try self.driver.GetDevices();
-        for (devices.items, 0..) |device, i| {
-            const device_descriptor: DeviceDescriptor = try self.driver.GetDeviceDescriptor(device);
-            std.debug.print("{d} {any}", .{ i, device_descriptor });
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        defer _ = gpa.deinit();
+        const allocator = gpa.allocator();
+        const devices = try self.driver.GetDevices(allocator);
+        defer {
+            for (devices) |*device| {
+                device.deinit();
+            }
+            allocator.free(devices);
+        }
+        for (devices, 0..) |*device, i| {
+            std.debug.print("Device {any} {d}\n", .{ device, i });
+            try self.driver.closeDevice(device);
+            //const device_descriptor: DeviceDescriptor = try self.driver.GetDeviceDescriptor(device);
+            //std.debug.print("{d} {any}", .{ i, device_descriptor });
         }
 
         return UsbError.DeviceNotFound;

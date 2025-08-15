@@ -1,24 +1,16 @@
 const std = @import("std");
-const DeviceDescriptor = @import("DeviceDescriptor.zig").DeviceDescriptor;
-const Handle = @import("Handle.zig").Handle;
-const UsbError = @import("error.zig").UsbError;
+const Adapter = @import("usb-adapter").Adapter;
+const Device = @import("usb-adapter").Device;
 
 pub const DeviceData = struct {
-    file_handle: Handle,
-    handle: Handle,
+    const Self = @This();
+
+    adapter: Adapter,
+    handle: Device,
     open: bool,
-    path: std.ArrayList(u8),
+    path: [*:0]const u8,
 
-    pub fn initCapacity(allocator: std.mem.Allocator, capacity: usize) !DeviceData {
-        return .{
-            .file_handle = null,
-            .handle = null,
-            .open = false,
-            .path = try .initCapacity(allocator, capacity),
-        };
-    }
-
-    pub fn deinit(self: *DeviceData) void {
-        self.path.deinit();
+    pub fn deinit(self: Self) void {
+        self.adapter.deinitDevice(self.handle);
     }
 };

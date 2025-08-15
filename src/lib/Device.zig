@@ -1,10 +1,10 @@
 const std = @import("std");
 const types = @import("usb-types");
+const Adapter = @import("usb-adapter").Adapter;
 const Context = types.Context;
 const DeviceData = types.DeviceData;
 const DeviceDescriptor = types.DeviceDescriptor;
 const UsbError = types.UsbError;
-const Driver = @import("usb-driver").Driver;
 
 pub const Device = struct {
     const Self = @This();
@@ -13,36 +13,42 @@ pub const Device = struct {
     usb_pid: u16,
     device_data: DeviceData,
     device_descriptor: DeviceDescriptor,
-    driver: Driver,
+    adapter: Adapter,
 
     pub fn init(usb_vid: u16, usb_pid: u16) Self {
-        const driver = Driver.init();
+        const adapter = Adapter.init();
         return Self{
             .usb_vid = usb_vid,
             .usb_pid = usb_pid,
             .device_data = undefined,
             .device_descriptor = undefined,
-            .driver = driver,
+            .adapter = adapter,
         };
+    }
+
+    pub fn deinit(self: Self) void {
+        self.adapter.deinit();
     }
 
     pub fn open(self: Self) !void {
         var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-        defer _ = gpa.deinit();
-        const allocator = gpa.allocator();
-        const devices = try self.driver.GetDevices(allocator);
         defer {
-            for (devices) |*device| {
+            _ = gpa.deinit();
+        }
+        const allocator = gpa.allocator();
+        const devices = try self.adapter.getDevices(allocator);
+        defer {
+            for (devices) |device| {
                 device.deinit();
             }
             allocator.free(devices);
         }
-        for (devices, 0..) |*device, i| {
-            std.debug.print("Device {any} {d}\n", .{ device, i });
-            try self.driver.closeDevice(device);
-            //const device_descriptor: DeviceDescriptor = try self.driver.GetDeviceDescriptor(device);
-            //std.debug.print("{d} {any}", .{ i, device_descriptor });
-        }
+        // for (devices, 0..) |*device, i| {
+        //     std.debug.print("Device {any} {d}\n", .{ device, i });
+        //     try self.driver.closeDevice(device);
+        //const device_descriptor: DeviceDescriptor = try self.driver.GetDeviceDescriptor(device);
+        //std.debug.print("{d} {any}", .{ i, device_descriptor });
+        // }
 
         return UsbError.DeviceNotFound;
     }

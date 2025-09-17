@@ -6,6 +6,11 @@ const DeviceData = types.DeviceData;
 const DeviceDescriptor = types.DeviceDescriptor;
 const UsbError = types.UsbError;
 
+pub const DeviceID = struct {
+    vid: u16,
+    pid: u16,
+};
+
 pub const Device = struct {
     const Self = @This();
 
@@ -14,8 +19,9 @@ pub const Device = struct {
     device_data: DeviceData,
     device_descriptor: DeviceDescriptor,
     adapter: Adapter,
+    allocator: std.mem.Allocator,
 
-    pub fn init(usb_vid: u16, usb_pid: u16) Self {
+    pub fn init(allocator: std.mem.Allocator, usb_vid: u16, usb_pid: u16) Self {
         const adapter = Adapter.init();
         return Self{
             .usb_vid = usb_vid,
@@ -23,34 +29,58 @@ pub const Device = struct {
             .device_data = undefined,
             .device_descriptor = undefined,
             .adapter = adapter,
+            .allocator = allocator,
         };
     }
 
     pub fn deinit(self: Self) void {
         self.adapter.deinit();
+        self.device_data.deinit();
     }
 
-    pub fn open(self: Self) !void {
-        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-        defer {
-            _ = gpa.deinit();
+    pub fn open(self: *Self) !void {
+        const devices = try self.adapter.getDevices(self.allocator);
+        var found = false;
+        for (devices) |device| {
+            // TODO: Handle Identical Devices
+            if (!found and try device.getPID() == self.usb_pid and try device.getVID() == self.usb_vid) {
+                if (device.getDescriptors()) |desc| {
+                    self.device_data = device;
+                    self.device_descriptor = desc;
+                    found = true;
+                } else |e| {
+                    std.debug.print("Error {any}\n", .{e});
+                    device.deinit();
+                }
+            } else {
+                device.deinit();
+            }
         }
-        const allocator = gpa.allocator();
-        const devices = try self.adapter.getDevices(allocator);
+        self.allocator.free(devices);
+
+        if (!found) {
+            return UsbError.DeviceNotFound;
+        }
+    }
+
+    pub fn getIDs(allocator: std.mem.Allocator) ![]DeviceID {
+        const devices = try Adapter.init().getDevices(allocator);
         defer {
             for (devices) |device| {
                 device.deinit();
             }
             allocator.free(devices);
         }
-        // for (devices, 0..) |*device, i| {
-        //     std.debug.print("Device {any} {d}\n", .{ device, i });
-        //     try self.driver.closeDevice(device);
-        //const device_descriptor: DeviceDescriptor = try self.driver.GetDeviceDescriptor(device);
-        //std.debug.print("{d} {any}", .{ i, device_descriptor });
-        // }
 
-        return UsbError.DeviceNotFound;
+        var device_ids = std.array_list.AlignedManaged(DeviceID, std.mem.Alignment.@"2").init(allocator);
+        for (devices) |device| {
+            try device_ids.append(DeviceID{
+                .pid = try device.getPID(),
+                .vid = try device.getVID(),
+            });
+        }
+
+        return device_ids.toOwnedSlice();
     }
 };
 

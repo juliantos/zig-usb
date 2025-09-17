@@ -3,4 +3,8 @@ pub const WindowsError = error{
     NoRegistryProperty,
     NoDevInfo,
     NoInstanceInfo,
+    NoDescriptors,
+    NoDevice,
+
+    BadDescriptor,
 };

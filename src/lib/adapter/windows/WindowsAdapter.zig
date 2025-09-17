@@ -101,16 +101,29 @@ pub const WindowsAdapter = struct {
     }
 
     pub fn getDevices(self: Self, allocator: std.mem.Allocator) ![]DeviceData {
-        var devices = std.ArrayList(DeviceData).init(allocator);
+        var devices = std.array_list.Managed(DeviceData).init(allocator);
 
         const windows_devices = try WindowsDevice.enumerateDevices(allocator, self.device_handle);
         defer allocator.free(windows_devices);
+        const windows_hubs = try WindowsDevice.enumerateHubs(allocator, self.device_handle);
+        defer allocator.free(windows_hubs);
         for (windows_devices) |device| {
             const path = device.getPath() catch {
                 device.deinit();
                 continue;
             };
-            std.debug.print("Device: {s}\n", .{path});
+            try devices.append(DeviceData{
+                .adapter = self,
+                .handle = device,
+                .open = false,
+                .path = path,
+            });
+        }
+        for (windows_hubs) |device| {
+            const path = device.getPath() catch {
+                device.deinit();
+                continue;
+            };
             try devices.append(DeviceData{
                 .adapter = self,
                 .handle = device,

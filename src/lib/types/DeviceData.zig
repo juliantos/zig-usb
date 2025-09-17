@@ -1,6 +1,7 @@
 const std = @import("std");
 const Adapter = @import("usb-adapter").Adapter;
 const Device = @import("usb-adapter").Device;
+const DeviceDescriptor = @import("./DeviceDescriptor.zig").DeviceDescriptor;
 
 pub const DeviceData = struct {
     const Self = @This();
@@ -12,5 +13,17 @@ pub const DeviceData = struct {
 
     pub fn deinit(self: Self) void {
         self.adapter.deinitDevice(self.handle);
+    }
+
+    pub inline fn getPID(self: Self) !u16 {
+        return self.handle.getPID();
+    }
+
+    pub inline fn getVID(self: Self) !u16 {
+        return self.handle.getVID();
+    }
+
+    pub inline fn getDescriptors(self: Self) !DeviceDescriptor {
+        return self.handle.getDescriptors();
     }
 };

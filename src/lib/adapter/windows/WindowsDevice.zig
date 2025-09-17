@@ -5,7 +5,18 @@ const setup_api = @cImport({
     @cInclude("setupapi.h");
     @cInclude("guiddef.h");
 });
+const usb = @cImport({
+    @cInclude("usbioctl.h");
+});
+const io = @cImport({
+    @cInclude("ioapiset.h");
+});
+const iodef = @cImport({
+    @cInclude("windows.h");
+    @cInclude("usbiodef.h");
+});
 const WindowsError = @import("WindowsError.zig").WindowsError;
+const DeviceDescriptor = @import("usb-types").DeviceDescriptor;
 
 const GUID_DEVINTERFACE_USB_DEVICE: setup_api.GUID = .{
     .Data1 = 0xa5dcbf10,
@@ -23,12 +34,46 @@ const GUID_DEVINTERFACE_USB_DEVICE: setup_api.GUID = .{
     },
 };
 
+const GUID_DEVINTERFACE_USB_HUB: setup_api.GUID = .{
+    .Data1 = 0xf18a0e88,
+    .Data2 = 0xc30c,
+    .Data3 = 0x11d0,
+    .Data4 = .{
+        0x88,
+        0x15,
+        0x00,
+        0xa0,
+        0xc9,
+        0x06,
+        0xbe,
+        0xd8,
+    },
+};
+
+fn CTL_CODE(device_type: u32, function: u32, method: u32, access: u32) u32 {
+    return (device_type << 16) | (access << 14) | (function << 2) | method;
+}
+
+const IOCTL_USB_GET_DESCRIPTOR_FROM_NODE_CONNECTION = CTL_CODE(iodef.FILE_DEVICE_USB, iodef.USB_GET_DESCRIPTOR_FROM_NODE_CONNECTION, iodef.METHOD_BUFFERED, iodef.FILE_ANY_ACCESS);
+const IOCTL_USB_GET_NODE_CONNECTION_INFORMATION = CTL_CODE(iodef.FILE_DEVICE_USB, iodef.USB_GET_NODE_CONNECTION_INFORMATION, iodef.METHOD_BUFFERED, iodef.FILE_ANY_ACCESS);
+const IOCTL_USB_GET_ROOT_HUB_NAME = CTL_CODE(iodef.FILE_DEVICE_USB, iodef.HCD_GET_ROOT_HUB_NAME, iodef.METHOD_BUFFERED, iodef.FILE_ANY_ACCESS);
+
 pub const WindowsDevice = struct {
     const Self = @This();
 
-    filepath: [windows.MAX_PATH:0]u8,
+    filepath: std.array_list.AlignedManaged(u8, std.mem.Alignment.@"1"),
+    handle: setup_api.HDEVINFO,
+    info: setup_api.SP_DEVINFO_DATA,
 
-    pub fn init(allocator: std.mem.Allocator, handle: setup_api.HDEVINFO, index: u32) !WindowsDevice {
+    pid: u16,
+    vid: u16,
+    mi: u8,
+    depth: u8,
+    serial: []const u8,
+    interface_num: u16,
+    interface_guid: setup_api.GUID,
+
+    pub fn init(allocator: std.mem.Allocator, handle: setup_api.HDEVINFO, guid: setup_api.GUID, index: u32) !WindowsDevice {
         var device = setup_api.SP_DEVINFO_DATA{};
         device.cbSize = @sizeOf(setup_api.SP_DEVINFO_DATA);
         var result = setup_api.SetupDiEnumDeviceInfo(handle, index, &device);
@@ -37,10 +82,9 @@ pub const WindowsDevice = struct {
             return WindowsError.NoEnumInfo;
         }
 
-        // TODO: Maybe Iterate?
         var data = setup_api.SP_DEVICE_INTERFACE_DATA{};
         data.cbSize = @sizeOf(setup_api.SP_DEVICE_INTERFACE_DATA);
-        result = setup_api.SetupDiEnumDeviceInterfaces(handle, &device, &GUID_DEVINTERFACE_USB_DEVICE, 0, &data);
+        result = setup_api.SetupDiEnumDeviceInterfaces(handle, &device, &guid, 0, &data);
 
         const detail = try allocator.create(setup_api.SP_DEVICE_INTERFACE_DETAIL_DATA_W);
         defer allocator.destroy(detail);
@@ -61,33 +105,71 @@ pub const WindowsDevice = struct {
         const flex_c_str = try std.unicode.utf16LeToUtf8Alloc(allocator, flex_array);
         defer allocator.free(flex_c_str);
 
-        var win_device = WindowsDevice{
-            .filepath = std.mem.zeroes([windows.MAX_PATH:0]u8),
-        };
-        for (0..length) |i| {
-            win_device.filepath[i] = flex_c_str[i];
+        const device_desc = try WindowsDevice.getDeviceProperty(allocator, handle, &device, setup_api.SPDRP_DEVICEDESC);
+        const device_desc_utf8 = try std.unicode.utf16LeToUtf8Alloc(allocator, device_desc);
+        defer {
+            allocator.free(device_desc);
+            allocator.free(device_desc_utf8);
         }
+        std.debug.print("Desc {s}\n", .{device_desc_utf8});
+
+        // const fp = windows.kernel32.CreateFileW(flex_array, windows.GENERIC_READ | windows.GENERIC_WRITE, windows.FILE_SHARE_READ | windows.FILE_SHARE_WRITE, null, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL | windows.FILE_FLAG_OVERLAPPED, null);
+        // if (fp == windows.INVALID_HANDLE_VALUE) {
+        //     std.debug.print("Failed to open device {}\n", .{windows.GetLastError()});
+        //     return WindowsError.NoDevice;
+        // }
+
+        var win_device = WindowsDevice{
+            .filepath = std.array_list.Managed(u8).init(allocator),
+            .handle = handle,
+            .info = device,
+
+            .pid = 0,
+            .vid = 0,
+            .mi = 0,
+            .depth = 0,
+            .serial = "",
+            .interface_num = 0,
+            .interface_guid = setup_api.GUID{},
+        };
+        try win_device.filepath.appendSlice(flex_c_str[0..]);
+
+        // Fill out device details
+        win_device.getDeviceProperties();
+
         return win_device;
     }
 
     pub fn deinit(self: Self) void {
-        _ = self;
+        self.filepath.deinit();
     }
 
-    pub fn getPath(self: Self) ![:0]const u8 {
-        return self.filepath[0..self.filepath.len];
+    pub inline fn getPath(self: Self) ![:0]const u8 {
+        return self.filepath.items[0 .. self.filepath.items.len - 1 :0];
+    }
+
+    pub inline fn getPID(self: Self) !u16 {
+        return self.pid;
+    }
+
+    pub inline fn getVID(self: Self) !u16 {
+        return self.vid;
+    }
+
+    pub fn getDescriptors(self: Self) !DeviceDescriptor {
+        _ = self;
+        return WindowsError.NoDescriptors;
     }
 
     pub fn enumerateDevices(allocator: std.mem.Allocator, handle: setup_api.HDEVINFO) ![]WindowsDevice {
-        var devices = std.ArrayList(WindowsDevice).init(allocator);
+        var devices = std.array_list.Managed(WindowsDevice).init(allocator);
         var index: u32 = 0;
         var winerr = windows.Win32Error.SUCCESS;
 
         while (winerr != windows.Win32Error.NO_MORE_ITEMS) {
-            const device = WindowsDevice.init(allocator, handle, index) catch |err| switch (err) {
+            const device = WindowsDevice.init(allocator, handle, GUID_DEVINTERFACE_USB_DEVICE, index) catch |err| switch (err) {
                 else => {
                     winerr = windows.GetLastError();
-                    std.debug.print("Error: {}\n", .{winerr});
                     index += 1;
                     continue;
                 },
@@ -100,6 +182,30 @@ pub const WindowsDevice = struct {
         }
 
         return devices.toOwnedSlice();
+    }
+
+    pub fn enumerateHubs(allocator: std.mem.Allocator, handle: setup_api.HDEVINFO) ![]WindowsDevice {
+        var hubs = std.array_list.Managed(WindowsDevice).init(allocator);
+        var index: u32 = 0;
+        var winerr = windows.Win32Error.SUCCESS;
+
+        while (winerr != windows.Win32Error.NO_MORE_ITEMS) {
+            const hub = WindowsDevice.init(allocator, handle, GUID_DEVINTERFACE_USB_HUB, index) catch |err| switch (err) {
+                else => {
+                    winerr = windows.GetLastError();
+                    std.debug.print("Error getting hub {any}\n", .{windows.GetLastError()});
+                    index += 1;
+                    continue;
+                },
+            };
+            hubs.append(hub) catch {
+                hub.deinit();
+                continue;
+            };
+            index += 1;
+        }
+
+        return hubs.toOwnedSlice();
     }
 
     fn getDeviceProperty(allocator: std.mem.Allocator, handle: setup_api.HDEVINFO, device_info: setup_api.PSP_DEVINFO_DATA, property: windows.DWORD) ![]windows.WCHAR {
@@ -143,6 +249,132 @@ pub const WindowsDevice = struct {
         }
 
         return buffer;
+    }
+
+    fn getDeviceProperties(self: *Self) void {
+        self.scanDevicePathString();
+    }
+
+    fn scanDevicePathString(self: *Self) void {
+        if (self.filepath.items.len > 0) {
+            var device_tokens = std.mem.tokenizeAny(u8, self.filepath.items, "#");
+
+            // Decode \\?\usb
+            const path_type = device_tokens.next();
+            if (path_type) |path| {
+                if (!std.mem.eql(u8, path, "\\\\?\\usb")) {
+                    return;
+                }
+            } else {
+                return;
+            }
+
+            //vid_xxxx&pid_yyyy
+            const ids = device_tokens.next();
+            if (ids) |id| {
+                var id_tokens = std.mem.tokenizeAny(u8, id, "&");
+
+                // vid_xxxx
+                const vid = id_tokens.next();
+
+                // pid_yyyy
+                const pid = id_tokens.next();
+
+                // mi_zz
+                const mi = id_tokens.next();
+
+                if (vid) |v| {
+                    if (v.len == 8) {
+                        self.vid = std.fmt.parseInt(u16, v[4..], 16) catch 0;
+                    }
+                }
+
+                if (pid) |p| {
+                    if (p.len == 8) {
+                        self.pid = std.fmt.parseInt(u16, p[4..], 16) catch 0;
+                    }
+                }
+
+                if (mi) |m| {
+                    if (m.len == 5) {
+                        self.mi = std.fmt.parseInt(u8, m[3..], 16) catch 0;
+                    }
+                }
+            }
+
+            // Extract Serial and Other Device ID
+            const serial = device_tokens.next();
+            if (serial) |s| {
+                var serial_tokens = std.mem.tokenizeAny(u8, s, "&");
+
+                // This can either be the depth or the serial
+                const first = serial_tokens.next();
+                if (first) |f| {
+                    if (f.len == 1) {
+                        self.depth = std.fmt.parseUnsigned(u8, f, 10) catch 0;
+                    } else {
+                        self.serial = f;
+                    }
+                }
+
+                if (self.serial.len == 0) {
+                    const ser = serial_tokens.next();
+
+                    // If the serial hasn't been updated that means a depth was found
+                    if (ser) |token| {
+                        self.serial = token;
+                    }
+
+                    // Skip over &0&
+                    _ = serial_tokens.next();
+
+                    // Interface Number
+                    const iface = serial_tokens.next();
+                    if (iface) |token| {
+                        self.interface_num = std.fmt.parseUnsigned(u8, token, 16) catch 0;
+                    }
+                }
+            }
+
+            const guid = device_tokens.next();
+            if (guid) |g| {
+                const end = std.mem.indexOf(u8, g, &[_]u8{0}) orelse g.len;
+                var guid_tokens = std.mem.tokenizeAny(u8, g[1 .. end - 1], "-");
+
+                const data1 = guid_tokens.next();
+                if (data1) |d| {
+                    self.interface_guid.Data1 = std.fmt.parseUnsigned(c_ulong, d, 16) catch 0;
+                }
+
+                const data2 = guid_tokens.next();
+                if (data2) |d| {
+                    self.interface_guid.Data2 = std.fmt.parseUnsigned(c_ushort, d, 16) catch 0;
+                }
+
+                const data3 = guid_tokens.next();
+                if (data3) |d| {
+                    self.interface_guid.Data3 = std.fmt.parseUnsigned(c_ushort, d, 16) catch 0;
+                }
+
+                const data4a = guid_tokens.next();
+                if (data4a) |d| {
+                    if (d.len == 4) {
+                        for (0..2) |i| {
+                            self.interface_guid.Data4[i] = std.fmt.parseUnsigned(u8, d[i * 2 .. i * 2 + 1], 16) catch 0;
+                        }
+                    }
+                }
+
+                const data4b = guid_tokens.next();
+                if (data4b) |d| {
+                    if (d.len == 12) {
+                        for (0..6) |i| {
+                            self.interface_guid.Data4[i + 2] = std.fmt.parseUnsigned(u8, d[i * 2 .. i * 2 + 1], 16) catch 0;
+                        }
+                    }
+                }
+            }
+        }
     }
 };
 

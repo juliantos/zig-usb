@@ -12,4 +12,5 @@ pub const DeviceDescriptor = packed struct {
     manufacturer: u8,
     product: u8,
     serial_number: u8,
+    num_configurations: u8,
 };

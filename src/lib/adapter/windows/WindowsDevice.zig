@@ -65,6 +65,9 @@ pub const WindowsDevice = struct {
     handle: setup_api.HDEVINFO,
     info: setup_api.SP_DEVINFO_DATA,
 
+    parent_hub: ?*WindowsDevice,
+    sub_devices: std.array_list.Managed(WindowsDevice),
+
     pid: u16,
     vid: u16,
     mi: u8,
@@ -73,7 +76,7 @@ pub const WindowsDevice = struct {
     interface_num: u16,
     interface_guid: setup_api.GUID,
 
-    pub fn init(allocator: std.mem.Allocator, handle: setup_api.HDEVINFO, guid: setup_api.GUID, index: u32) !WindowsDevice {
+    pub fn init(allocator: std.mem.Allocator, handle: setup_api.HDEVINFO, guid: setup_api.GUID, hub: ?*WindowsDevice, index: u32) !WindowsDevice {
         var device = setup_api.SP_DEVINFO_DATA{};
         device.cbSize = @sizeOf(setup_api.SP_DEVINFO_DATA);
         var result = setup_api.SetupDiEnumDeviceInfo(handle, index, &device);
@@ -118,11 +121,15 @@ pub const WindowsDevice = struct {
         //     std.debug.print("Failed to open device {}\n", .{windows.GetLastError()});
         //     return WindowsError.NoDevice;
         // }
+        // std.debug.print("File Pointer {any}\n", .{fp});
 
         var win_device = WindowsDevice{
             .filepath = std.array_list.Managed(u8).init(allocator),
             .handle = handle,
             .info = device,
+
+            .parent_hub = hub,
+            .sub_devices = std.array_list.Managed(WindowsDevice).init(allocator),
 
             .pid = 0,
             .vid = 0,
@@ -167,7 +174,7 @@ pub const WindowsDevice = struct {
         var winerr = windows.Win32Error.SUCCESS;
 
         while (winerr != windows.Win32Error.NO_MORE_ITEMS) {
-            const device = WindowsDevice.init(allocator, handle, GUID_DEVINTERFACE_USB_DEVICE, index) catch |err| switch (err) {
+            const device = WindowsDevice.init(allocator, handle, GUID_DEVINTERFACE_USB_DEVICE, null, index) catch |err| switch (err) {
                 else => {
                     winerr = windows.GetLastError();
                     index += 1;
@@ -190,10 +197,9 @@ pub const WindowsDevice = struct {
         var winerr = windows.Win32Error.SUCCESS;
 
         while (winerr != windows.Win32Error.NO_MORE_ITEMS) {
-            const hub = WindowsDevice.init(allocator, handle, GUID_DEVINTERFACE_USB_HUB, index) catch |err| switch (err) {
+            const hub = WindowsDevice.init(allocator, handle, GUID_DEVINTERFACE_USB_HUB, null, index) catch |err| switch (err) {
                 else => {
                     winerr = windows.GetLastError();
-                    std.debug.print("Error getting hub {any}\n", .{windows.GetLastError()});
                     index += 1;
                     continue;
                 },

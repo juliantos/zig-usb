@@ -6,6 +6,7 @@ const setup_api = @cImport({
     @cInclude("guiddef.h");
 });
 const WindowsDevice = @import("WindowsDevice.zig").WindowsDevice;
+const WindowsHostController = @import("WindowsHostController.zig").WindowsHostController;
 const Context = @import("usb-types").Context;
 const DeviceData = @import("usb-types").DeviceData;
 const DeviceDescriptor = @import("usb-types").DeviceDescriptor;
@@ -103,34 +104,47 @@ pub const WindowsAdapter = struct {
     pub fn getDevices(self: Self, allocator: std.mem.Allocator) ![]DeviceData {
         var devices = std.array_list.Managed(DeviceData).init(allocator);
 
-        const windows_devices = try WindowsDevice.enumerateDevices(allocator, self.device_handle);
-        defer allocator.free(windows_devices);
-        const windows_hubs = try WindowsDevice.enumerateHubs(allocator, self.device_handle);
-        defer allocator.free(windows_hubs);
-        for (windows_devices) |device| {
-            const path = device.getPath() catch {
-                device.deinit();
-                continue;
-            };
-            try devices.append(DeviceData{
-                .adapter = self,
-                .handle = device,
-                .open = false,
-                .path = path,
-            });
+        const windows_host_controllers = try WindowsHostController.enumerateControllers(allocator, self.controller_handle);
+        defer {
+            for (windows_host_controllers) |controller| {
+                controller.deinit();
+            }
+            allocator.free(windows_host_controllers);
         }
-        for (windows_hubs) |device| {
-            const path = device.getPath() catch {
-                device.deinit();
-                continue;
-            };
-            try devices.append(DeviceData{
-                .adapter = self,
-                .handle = device,
-                .open = false,
-                .path = path,
-            });
+
+        for (windows_host_controllers) |controller| {
+            std.debug.print("Controller: {s}\n", .{try controller.getPath()});
         }
+
+        // const windows_devices = try WindowsDevice.enumerateDevices(allocator, self.device_handle);
+        // defer allocator.free(windows_devices);
+        // const windows_hubs = try WindowsDevice.enumerateHubs(allocator, self.hub_handle);
+        // defer allocator.free(windows_hubs);
+        // for (windows_devices) |device| {
+        //     const path = device.getPath() catch {
+        //         device.deinit();
+        //         continue;
+        //     };
+        //     try devices.append(DeviceData{
+        //         .adapter = self,
+        //         .handle = device,
+        //         .open = false,
+        //         .path = path,
+        //     });
+        // }
+        // // TODO: Maybe Place in array of non-forward facing devices
+        // for (windows_hubs) |device| {
+        //     const path = device.getPath() catch {
+        //         device.deinit();
+        //         continue;
+        //     };
+        //     try devices.append(DeviceData{
+        //         .adapter = self,
+        //         .handle = device,
+        //         .open = false,
+        //         .path = path,
+        //     });
+        // }
         return devices.toOwnedSlice();
     }
 };

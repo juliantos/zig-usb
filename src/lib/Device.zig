@@ -64,12 +64,14 @@ pub const Device = struct {
     }
 
     pub fn getIDs(allocator: std.mem.Allocator) ![]DeviceID {
-        const devices = try Adapter.init().getDevices(allocator);
+        var adapter = Adapter.init();
+        const devices = try adapter.getDevices(allocator);
         defer {
             for (devices) |device| {
                 device.deinit();
             }
             allocator.free(devices);
+            adapter.deinit();
         }
 
         var device_ids = std.array_list.AlignedManaged(DeviceID, std.mem.Alignment.@"2").init(allocator);

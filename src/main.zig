@@ -3,6 +3,8 @@ const usb = @import("zig-usb");
 const Device = usb.Device;
 
 pub fn main() !void {
+    std.debug.print("Searching for Devices\n", .{});
+
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer {
         _ = gpa.deinit();

@@ -7,12 +7,6 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // const driver_root_file = switch (target.result.os.tag) {
-    //     .windows => b.path("src/lib/windows/Adapter.zig"),
-    //     .linux => @panic("write usb os hooks for linux"),
-    //     else => @panic("write usb os hooks for target"),
-    // };
-
     const types = b.createModule(.{
         .root_source_file = b.path("src/lib/types/root.zig"),
         .target = target,
@@ -35,6 +29,12 @@ pub fn build(b: *std.Build) void {
             adapter.addImport("usb-types", types);
             adapter.linkSystemLibrary("SetupApi", .{});
             adapter.linkSystemLibrary("WinUsb", .{});
+        },
+        .linux => {
+            adapter.addImport("usb-types", types);
+            // adapter.linkSystemLibrary("libudev", .{}); // This is deprecated for sd-device
+            // TODO: switch between libudev and libsystemd
+            adapter.linkSystemLibrary("libsystemd", .{});
         },
         else => @panic("link system/kernel libraries for adapter"),
     }

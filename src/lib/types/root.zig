@@ -3,4 +3,4 @@ pub const ConfigurationDescriptor = @import("ConfigurationDescriptor.zig").Confi
 pub const DeviceData = @import("DeviceData.zig").DeviceData;
 pub const DeviceDescriptor = @import("DeviceDescriptor.zig").DeviceDescriptor;
 pub const UsbError = @import("error.zig").UsbError;
-pub const Handle = @import("handle.zig").Handle;
+pub const Handle = @import("Handle.zig").Handle;

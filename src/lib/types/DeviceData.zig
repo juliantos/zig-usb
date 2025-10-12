@@ -1,7 +1,7 @@
 const std = @import("std");
 const Adapter = @import("usb-adapter").Adapter;
 const Device = @import("usb-adapter").Device;
-const DeviceDescriptor = @import("./DeviceDescriptor.zig").DeviceDescriptor;
+const DeviceDescriptor = @import("descriptors.zig").DeviceDescriptor;
 
 pub const DeviceData = struct {
     const Self = @This();

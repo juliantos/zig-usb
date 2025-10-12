@@ -3,7 +3,7 @@ const types = @import("usb-types");
 const Adapter = @import("usb-adapter").Adapter;
 const Context = types.Context;
 const DeviceData = types.DeviceData;
-const DeviceDescriptor = types.DeviceDescriptor;
+const DeviceDescriptor = types.descriptors.DeviceDescriptor;
 const UsbError = types.UsbError;
 
 pub const DeviceID = struct {

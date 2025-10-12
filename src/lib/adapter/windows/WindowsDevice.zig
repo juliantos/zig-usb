@@ -182,7 +182,7 @@ pub const WindowsDevice = struct {
                 },
             };
             devices.append(device) catch {
-                device.deinit();
+                device.deinit(); // MAYBE: need to increment index; seeing this while developing linux
                 continue;
             };
             index += 1;

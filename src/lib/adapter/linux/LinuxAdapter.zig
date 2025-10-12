@@ -39,7 +39,12 @@ pub const LinuxAdapter = struct {
         var devices = std.array_list.Managed(DeviceData).init(allocator);
 
         const linux_devices = try LinuxDevice.enumerateDevice(allocator);
-        defer allocator.free(linux_devices);
+        defer {
+            for (linux_devices) |d| {
+                d.deinit();
+            }
+            allocator.free(linux_devices);
+        }
 
         return devices.toOwnedSlice();
     }

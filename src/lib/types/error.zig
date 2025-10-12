@@ -4,4 +4,6 @@ pub const UsbError = error{
     DeviceNotFound,
     InvalidContext,
     DriverFailure,
+    NoDescriptor,
+    DescriptorDoesNotMatch,
 };

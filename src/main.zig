@@ -15,19 +15,19 @@ pub fn main() !void {
         allocator.free(devices);
     }
 
-    for (devices) |dev| {
-        std.debug.print("Device: 0x{x:0>4} 0x{x:0>4}\n", .{ dev.pid, dev.vid });
+    // for (devices) |dev| {
+    //     std.debug.print("Device: 0x{x:0>4} 0x{x:0>4}\n", .{ dev.pid, dev.vid });
 
-        var device = Device.init(allocator, dev.vid, dev.pid);
-        defer {
-            device.deinit();
-        }
-        if (device.open()) {
-            std.debug.print("Descriptor: {any}\n", .{device.device_descriptor});
-        } else |_| {}
-    }
+    //     var device = Device.init(allocator, dev.vid, dev.pid);
+    //     defer {
+    //         device.deinit();
+    //     }
+    //     if (device.open()) {
+    //         std.debug.print("Descriptor: {any}\n", .{device.device_descriptor});
+    //     } else |_| {}
+    // }
 
-    //_ = usb.device.OpenDevice(context, 0, 0) catch |err| {
+    // //_ = usb.device.OpenDevice(context, 0, 0) catch |err| {
     ////std.debug.print("Error {}\n", err);
     //std.debug.print("{any}", .{err});
     //};

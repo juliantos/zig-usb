@@ -32,8 +32,6 @@ pub fn build(b: *std.Build) void {
         },
         .linux => {
             adapter.addImport("usb-types", types);
-            // adapter.linkSystemLibrary("libudev", .{}); // This is deprecated for sd-device
-            // TODO: switch between libudev and libsystemd
             adapter.linkSystemLibrary("libsystemd", .{});
         },
         else => @panic("link system/kernel libraries for adapter"),

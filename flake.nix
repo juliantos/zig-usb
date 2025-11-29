@@ -65,13 +65,11 @@
       };
       devShells.${system} = {
         default = pkgs.mkShell {
-          nativeBuildInputs = with pkgs; [ pkg-config ] ++ zig;
+          nativeBuildInputs = [ pkgs.pkg-config zig ];
           buildInputs = with pkgs; [ systemd ];
         };
         aarch64 = aarch-pkgs.mkShell {
-          nativeBuildInputs = with aarch-pkgs.buildPackages; [
-            pkg-config
-          ] ++ zig;
+          nativeBuildInputs = [ aarch-pkgs.buildPackages.pkg-config zig];
           buildInputs = with aarch-pkgs; [
             systemd
           ];

@@ -64,9 +64,8 @@ pub const LinuxDevice = struct {
         return 0;
     }
 
-    pub fn getDescriptors(self: Self) !descriptors.DeviceDescriptor {
-        _ = self;
-        return LinuxError.NoDescriptors;
+    pub fn getDescriptors(self: Self) !descriptors.DeviceDescriptorTree {
+        return self.desc;
     }
 
     pub fn enumerateDevice(allocator: std.mem.Allocator) ![]LinuxDevice {
@@ -91,7 +90,6 @@ pub const LinuxDevice = struct {
                     devices.append(linux_device) catch {
                         linux_device.deinit();
                     };
-                    std.debug.print("Device: {any}\n", .{linux_device});
                 } else |_| {}
             }
             dev = device.sd_device_enumerator_get_device_next(enumerator);

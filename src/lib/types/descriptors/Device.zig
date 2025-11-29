@@ -4,7 +4,7 @@ const DescriptorType = @import("Descriptor.zig").DescriptorType;
 const ConfigurationDescriptorTree = @import("Configuration.zig").ConfigurationDescriptorTree;
 const UsbError = @import("../error.zig").UsbError;
 
-pub const DeviceDescriptor = packed struct {
+pub const DeviceDescriptor = extern struct {
     descriptor: Descriptor,
     usb: u16,
     class: u8,
@@ -19,35 +19,33 @@ pub const DeviceDescriptor = packed struct {
     serial_number: u8,
     num_configurations: u8,
 
-    pub fn read(allocator: std.mem.Allocator, reader: *std.io.Reader, descriptor: ?Descriptor) !DeviceDescriptor {
+    pub fn read(allocator: std.mem.Allocator, reader: *std.io.Reader, descriptor: ?Descriptor) !*DeviceDescriptor {
         var len: u8 = DescriptorType.Device.size();
         if (descriptor) |d| {
             len = d.length;
         }
-        const ptr = try reader.readAlloc(allocator, len);
-        defer allocator.free(ptr);
+        const ptr: *DeviceDescriptor = @ptrCast(@alignCast(try reader.readAlloc(allocator, len)));
 
-        var desc: DeviceDescriptor = undefined;
-        const max = @min(len, @sizeOf(DeviceDescriptor));
-        std.mem.copyForwards(u8, @as([]u8, @ptrCast(&desc)), ptr[0..max]);
-
-        if (desc.descriptor.type != DescriptorType.Device) {
+        if (ptr.descriptor.type != DescriptorType.Device) {
             return UsbError.DescriptorDoesNotMatch;
         }
-        return desc;
+        return ptr;
     }
 };
 
 pub const DeviceDescriptorTree = struct {
     const Self = @This();
 
-    descriptor: DeviceDescriptor,
+    descriptor: *DeviceDescriptor,
     configurations: std.array_list.Managed(ConfigurationDescriptorTree),
 
-    pub fn init(allocator: std.mem.Allocator, descriptor: DeviceDescriptor) !DeviceDescriptorTree {
+    allocator: std.mem.Allocator,
+
+    pub fn init(allocator: std.mem.Allocator, descriptor: *DeviceDescriptor) !DeviceDescriptorTree {
         return DeviceDescriptorTree{
             .descriptor = descriptor,
             .configurations = std.array_list.Managed(ConfigurationDescriptorTree).init(allocator),
+            .allocator = allocator,
         };
     }
 
@@ -81,6 +79,8 @@ pub const DeviceDescriptorTree = struct {
             config.deinit();
         }
         self.configurations.deinit();
+
+        self.allocator.free(@as([]u8, @ptrCast(self.descriptor)));
     }
 
     // pub fn getCurrentConfig(self: *Self) !*ConfigurationDescriptorTree {

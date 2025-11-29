@@ -13,35 +13,33 @@ pub const AssociationDescriptor = packed struct {
     protocol: u8,
     function: u8,
 
-    pub fn read(allocator: std.mem.Allocator, reader: *std.io.Reader, descriptor: ?Descriptor) !AssociationDescriptor {
+    pub fn read(allocator: std.mem.Allocator, reader: *std.io.Reader, descriptor: ?Descriptor) !*AssociationDescriptor {
         var len: u8 = DescriptorType.Association.size();
         if (descriptor) |d| {
             len = d.length;
         }
-        const ptr = try reader.readAlloc(allocator, len);
-        defer allocator.free(ptr);
+        const ptr: *AssociationDescriptor = @ptrCast(@alignCast(try reader.readAlloc(allocator, len)));
 
-        var desc: AssociationDescriptor = undefined;
-        const max = @min(len, @sizeOf(AssociationDescriptor));
-        std.mem.copyForwards(u8, @as([]u8, @ptrCast(&desc)), ptr[0..max]);
-
-        if (desc.descriptor.type != DescriptorType.Association) {
+        if (ptr.descriptor.type != DescriptorType.Association) {
             return UsbError.DescriptorDoesNotMatch;
         }
-        return desc;
+        return ptr;
     }
 };
 
 pub const AssociationDescriptorTree = struct {
     const Self = @This();
 
-    descriptor: AssociationDescriptor,
+    descriptor: *AssociationDescriptor,
     interfaces: std.array_list.Managed(InterfaceDescriptorTree),
 
-    pub fn init(allocator: std.mem.Allocator, descriptor: AssociationDescriptor) !AssociationDescriptorTree {
+    allocator: std.mem.Allocator,
+
+    pub fn init(allocator: std.mem.Allocator, descriptor: *AssociationDescriptor) !AssociationDescriptorTree {
         return AssociationDescriptorTree{
             .descriptor = descriptor,
             .interfaces = std.array_list.Managed(InterfaceDescriptorTree).init(allocator),
+            .allocator = allocator,
         };
     }
 
@@ -67,6 +65,7 @@ pub const AssociationDescriptorTree = struct {
                                 interfaces += 1;
                             },
                             else => {
+                                std.debug.print("Type: {any}\n", .{next.type});
                                 @panic("Associations should only have interfaces");
                             },
                         }
@@ -75,13 +74,13 @@ pub const AssociationDescriptorTree = struct {
                         return err;
                     }
                 }
+                return association_tree;
             } else {
                 return UsbError.NoDescriptor;
             }
         } else |err| {
             return err;
         }
-        @panic("Read Association");
     }
 
     pub fn deinit(self: Self) void {
@@ -89,25 +88,11 @@ pub const AssociationDescriptorTree = struct {
             interface.deinit();
         }
         self.interfaces.deinit();
+
+        self.allocator.free(@as([]u8, @ptrCast(self.descriptor)));
     }
 
     pub fn addInterface(self: *Self, interface: InterfaceDescriptorTree) !void {
-        try self.interfaces.append(
-            interface,
-        );
+        try self.interfaces.append(interface);
     }
-
-    //     pub fn getCurrentInterface(self: *Self) !*InterfaceDescriptorTree {
-    //         var iface: ?*InterfaceDescriptorTree = null;
-    //         const len = self.interfaces.items.len;
-    //         if (len > 0) {
-    //             iface = &self.interfaces.items[len - 1];
-    //         }
-
-    //         if (iface) |interface| {
-    //             return interface;
-    //         } else {
-    //             return error.NoDescriptor;
-    //         }
-    //     }
 };

@@ -1,10 +1,14 @@
 const std = @import("std");
 const descriptors = @import("../descriptors.zig");
+const class = descriptors.class;
+
+const UsbError = @import("../error.zig").UsbError;
+
 const Descriptor = descriptors.Descriptor;
 const DescriptorType = descriptors.DescriptorType;
 const EndpointDescriptorTree = descriptors.EndpointDescriptorTree;
 const HIDDescriptor = descriptors.HIDDescriptor;
-const UsbError = @import("../error.zig").UsbError;
+const InterfaceClassDescriptor = class.interface.InterfaceClassDescriptor;
 
 pub const InterfaceDescriptor = packed struct {
     descriptor: Descriptor,
@@ -16,38 +20,35 @@ pub const InterfaceDescriptor = packed struct {
     protocol: u8,
     interface: u8,
 
-    pub fn read(allocator: std.mem.Allocator, reader: *std.io.Reader, descriptor: ?Descriptor) !InterfaceDescriptor {
+    pub fn read(allocator: std.mem.Allocator, reader: *std.io.Reader, descriptor: ?Descriptor) !*InterfaceDescriptor {
         var len: u8 = DescriptorType.Interface.size();
         if (descriptor) |d| {
             len = d.length;
         }
-        const ptr = try reader.readAlloc(allocator, len);
-        defer allocator.free(ptr);
+        const ptr: *InterfaceDescriptor = @ptrCast(@alignCast(try reader.readAlloc(allocator, len)));
 
-        var desc: InterfaceDescriptor = undefined;
-        const max = @min(len, @sizeOf(InterfaceDescriptor));
-        std.mem.copyForwards(u8, @as([]u8, @ptrCast(&desc)), ptr[0..max]);
-
-        if (desc.descriptor.type != DescriptorType.Interface) {
+        if (ptr.descriptor.type != DescriptorType.Interface) {
             return UsbError.DescriptorDoesNotMatch;
         }
-        return desc;
+        return ptr;
     }
 };
 
 pub const InterfaceDescriptorTree = struct {
     const Self = @This();
 
-    descriptor: InterfaceDescriptor,
+    descriptor: *InterfaceDescriptor,
     endpoints: std.array_list.Managed(EndpointDescriptorTree),
+    sub_descriptors: std.array_list.Managed(InterfaceClassDescriptor),
 
     allocator: std.mem.Allocator,
     hid: ?*HIDDescriptor,
 
-    pub fn init(allocator: std.mem.Allocator, descriptor: InterfaceDescriptor) !InterfaceDescriptorTree {
+    pub fn init(allocator: std.mem.Allocator, descriptor: *InterfaceDescriptor) !InterfaceDescriptorTree {
         return InterfaceDescriptorTree{
             .descriptor = descriptor,
             .endpoints = std.array_list.Managed(EndpointDescriptorTree).init(allocator),
+            .sub_descriptors = std.array_list.Managed(InterfaceClassDescriptor).init(allocator),
             .allocator = allocator,
             .hid = null,
         };
@@ -63,7 +64,7 @@ pub const InterfaceDescriptorTree = struct {
                     if (Descriptor.peek(reader)) |next| {
                         switch (next.type) {
                             .Endpoint => {
-                                if (EndpointDescriptorTree.read(allocator, reader)) |endpoint| {
+                                if (EndpointDescriptorTree.read(allocator, reader, interface)) |endpoint| {
                                     interface_tree.addEndpoint(endpoint) catch |err| {
                                         interface_tree.deinit();
                                         return err;
@@ -79,9 +80,8 @@ pub const InterfaceDescriptorTree = struct {
                                 interface_tree.addHid(hid);
                             },
                             .ClassSpecificationInterface => {
-                                const interface_class = descriptors.class.InterfaceClassDescriptor.peek(allocator, reader);
-                                std.debug.print("InterfaceClass: {any}\n", .{interface_class});
-                                @panic("Handle Class Specification Interface");
+                                const interface_class = try InterfaceClassDescriptor.read(allocator, reader, interface);
+                                try interface_tree.addInterfaceClassDescriptor(interface_class);
                             },
                             else => |t| {
                                 std.debug.print("Handle {any}\n", .{t});
@@ -109,10 +109,15 @@ pub const InterfaceDescriptorTree = struct {
         self.endpoints.deinit();
 
         if (self.hid) |hid| {
-            descriptors.freeDescriptorTypePtr(HIDDescriptor, self.allocator, hid) catch {
-                @panic("Free Should Not Fail");
-            };
+            descriptors.freeDescriptorTypePtr(HIDDescriptor, self.allocator, hid);
         }
+
+        for (self.sub_descriptors.items) |*descriptor| {
+            descriptor.deinit();
+        }
+        self.sub_descriptors.deinit();
+
+        descriptors.freeDescriptorTypePtr(InterfaceDescriptor, self.allocator, self.descriptor);
     }
 
     pub fn addEndpoint(self: *Self, endpoint: EndpointDescriptorTree) !void {
@@ -121,5 +126,9 @@ pub const InterfaceDescriptorTree = struct {
 
     pub fn addHid(self: *Self, hid: *HIDDescriptor) void {
         self.hid = hid;
+    }
+
+    pub fn addInterfaceClassDescriptor(self: *Self, descriptor: InterfaceClassDescriptor) !void {
+        try self.sub_descriptors.append(descriptor);
     }
 };

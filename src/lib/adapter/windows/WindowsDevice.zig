@@ -16,7 +16,7 @@ const iodef = @cImport({
     @cInclude("usbiodef.h");
 });
 const WindowsError = @import("WindowsError.zig").WindowsError;
-const DeviceDescriptor = @import("usb-types").DeviceDescriptor;
+const DeviceDescriptorTree = @import("usb-types").DeviceDescriptorTree;
 
 const GUID_DEVINTERFACE_USB_DEVICE: setup_api.GUID = .{
     .Data1 = 0xa5dcbf10,
@@ -163,7 +163,7 @@ pub const WindowsDevice = struct {
         return self.vid;
     }
 
-    pub fn getDescriptors(self: Self) !DeviceDescriptor {
+    pub fn getDescriptors(self: Self) !DeviceDescriptorTree {
         _ = self;
         return WindowsError.NoDescriptors;
     }

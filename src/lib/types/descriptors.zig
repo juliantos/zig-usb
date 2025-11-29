@@ -65,8 +65,11 @@ pub fn readDescriptorToTypePtr(allocator: std.mem.Allocator, reader: *std.io.Rea
     return ptr;
 }
 
-pub fn freeDescriptorTypePtr(comptime T: type, allocator: std.mem.Allocator, ptr: *T) !void {
-    comptime std.debug.assert(std.mem.eql(u8, @typeName(T), "descriptors.HID.HIDDescriptor"));
+pub fn freeDescriptorTypePtr(comptime T: type, allocator: std.mem.Allocator, ptr: *T) void {
+    comptime std.debug.assert(std.mem.eql(u8, @typeName(T), "descriptors.HID.HIDDescriptor") or
+        std.mem.eql(u8, @typeName(T), "descriptors.Interface.InterfaceDescriptor") or
+        std.mem.eql(u8, @typeName(T), "descriptors.Endpoint.EndpointDescriptor") or
+        std.mem.eql(u8, @typeName(T), "descriptors.Configuration.ConfigurationDescriptor"));
     // TODO: Can we get a zig macro for this? @as([]u8, @ptrCast(ptr)) -> assumes that the length is the size of the ptr size
     // Can we get a @byteCast(ptr, len)?
     var bytes: []u8 align(1) = undefined;

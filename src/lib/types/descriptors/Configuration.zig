@@ -1,9 +1,12 @@
 const std = @import("std");
-const Descriptor = @import("Descriptor.zig").Descriptor;
-const DescriptorType = @import("Descriptor.zig").DescriptorType;
-const InterfaceDescriptorTree = @import("Interface.zig").InterfaceDescriptorTree;
-const AssociationDescriptorTree = @import("Association.zig").AssociationDescriptorTree;
+const descriptors = @import("../descriptors.zig");
+
 const UsbError = @import("../error.zig").UsbError;
+
+const Descriptor = descriptors.Descriptor;
+const DescriptorType = descriptors.DescriptorType;
+const InterfaceDescriptorTree = descriptors.InterfaceDescriptorTree;
+const AssociationDescriptorTree = descriptors.AssociationDescriptorTree;
 
 pub const ConfigurationDescriptor = packed struct {
     descriptor: Descriptor,
@@ -14,22 +17,17 @@ pub const ConfigurationDescriptor = packed struct {
     attributes: u8,
     max_power: u8,
 
-    pub fn read(allocator: std.mem.Allocator, reader: *std.io.Reader, descriptor: ?Descriptor) !ConfigurationDescriptor {
+    pub fn read(allocator: std.mem.Allocator, reader: *std.io.Reader, descriptor: ?Descriptor) !*ConfigurationDescriptor {
         var len: u8 = DescriptorType.Configuration.size();
         if (descriptor) |d| {
             len = d.length;
         }
-        const ptr = try reader.readAlloc(allocator, len);
-        defer allocator.free(ptr);
+        const ptr: *ConfigurationDescriptor = @ptrCast(@alignCast(try reader.readAlloc(allocator, len)));
 
-        var desc: ConfigurationDescriptor = undefined;
-        const max = @min(len, @sizeOf(ConfigurationDescriptor));
-        std.mem.copyForwards(u8, @as([]u8, @ptrCast(&desc)), ptr[0..max]);
-
-        if (desc.descriptor.type != DescriptorType.Configuration) {
+        if (ptr.descriptor.type != DescriptorType.Configuration) {
             return UsbError.DescriptorDoesNotMatch;
         }
-        return desc;
+        return ptr;
     }
 };
 
@@ -42,13 +40,16 @@ pub const InterfaceOrAssociation = union(IOA) {
 pub const ConfigurationDescriptorTree = struct {
     const Self = @This();
 
-    descriptor: ConfigurationDescriptor,
+    descriptor: *ConfigurationDescriptor,
     interfaces_or_associations: std.array_list.Managed(InterfaceOrAssociation),
 
-    pub fn init(allocator: std.mem.Allocator, descriptor: ConfigurationDescriptor) !ConfigurationDescriptorTree {
+    allocator: std.mem.Allocator,
+
+    pub fn init(allocator: std.mem.Allocator, descriptor: *ConfigurationDescriptor) !ConfigurationDescriptorTree {
         return ConfigurationDescriptorTree{
             .descriptor = descriptor,
             .interfaces_or_associations = std.array_list.Managed(InterfaceOrAssociation).init(allocator),
+            .allocator = allocator,
         };
     }
 
@@ -63,12 +64,11 @@ pub const ConfigurationDescriptorTree = struct {
                         switch (next.type) {
                             .Association => {
                                 if (AssociationDescriptorTree.read(allocator, reader)) |association| {
-                                    std.debug.print("Assocation: {any}\n", .{association});
+                                    try config_tree.addAssociation(association);
                                 } else |err| {
                                     config_tree.deinit();
                                     return err;
                                 }
-                                @panic("Handle Association");
                             },
                             .Interface => {
                                 if (InterfaceDescriptorTree.read(allocator, reader)) |interface| {
@@ -110,6 +110,8 @@ pub const ConfigurationDescriptorTree = struct {
             }
         }
         self.interfaces_or_associations.deinit();
+
+        descriptors.freeDescriptorTypePtr(ConfigurationDescriptor, self.allocator, self.descriptor);
     }
 
     pub fn addInterface(self: *Self, interface: InterfaceDescriptorTree) !void {
